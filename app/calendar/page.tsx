@@ -5,18 +5,81 @@ import type React from "react"
 import { useEffect, useState, useRef } from "react"
 import { useSearchParams } from "next/navigation"
 import { X } from "lucide-react"
+import { getUserDeviceInfo } from "@/lib/utm-utils"
 
 export default function CalendarPage() {
   const searchParams = useSearchParams()
   const [showThankYou, setShowThankYou] = useState(false)
   const [isCalendlyLoading, setIsCalendlyLoading] = useState(true)
+  const [zapierTriggered, setZapierTriggered] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const { userAgent } = getUserDeviceInfo()
 
   useEffect(() => {
     // Check if the URL has the submitted parameter
     const isSubmitted = searchParams.get("submitted") === "true"
     setShowThankYou(isSubmitted)
-  }, [searchParams])
+
+    // Trigger API webhook for calendar page visits with submitted=true
+    if (isSubmitted && !zapierTriggered) {
+      const triggerWebhook = async () => {
+        try {
+          console.log("Calendar page webhook trigger started")
+
+          // Check if we have a recent submission in sessionStorage
+          const lastSubmission = sessionStorage.getItem("lastSubmission")
+          let submissionData = {}
+
+          if (lastSubmission) {
+            try {
+              const parsedSubmission = JSON.parse(lastSubmission)
+              // Only use if it's recent (within last 5 minutes)
+              if (Date.now() - parsedSubmission.timestamp < 5 * 60 * 1000) {
+                submissionData = parsedSubmission
+              }
+            } catch (e) {
+              console.error("Error parsing last submission:", e)
+            }
+          }
+
+          // Prepare data for the webhook
+          const data = {
+            event: "calendar_visit",
+            submittedAt: new Date().toISOString(),
+            url: window.location.href,
+            userAgent,
+            ...submissionData,
+          }
+
+          console.log("Sending calendar webhook data:", data)
+
+          // Send to our API route instead of directly to Zapier
+          const response = await fetch("/api/webhook", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(data),
+          })
+
+          if (!response.ok) {
+            const errorText = await response.text()
+            console.error("Calendar webhook API error:", errorText)
+            throw new Error(`Failed to trigger webhook: ${errorText}`)
+          }
+
+          console.log("Calendar webhook triggered successfully")
+          setZapierTriggered(true)
+        } catch (error) {
+          console.error("Error triggering webhook:", error)
+          setError("There was an error processing your submission.")
+        }
+      }
+
+      triggerWebhook()
+    }
+  }, [searchParams, zapierTriggered, userAgent])
 
   const handleClosePopup = () => {
     // Simply hide the popup
@@ -99,6 +162,12 @@ export default function CalendarPage() {
               If you would like to set up time to chat now, feel free to book a demo with us directly on this page.
             </p>
           </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="container mx-auto px-4 mb-8">
+          <div className="bg-red-900/20 border border-red-800 text-red-400 p-4 rounded-md">{error}</div>
         </div>
       )}
 

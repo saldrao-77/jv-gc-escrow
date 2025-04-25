@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { RefreshCw, Download, Search, ArrowUpDown, Trash2, Save, X, Edit2 } from "lucide-react"
+import { createClientSupabaseClient } from "@/lib/supabase"
 
 // Define the submission type
 type Submission = {
@@ -32,154 +33,77 @@ export default function AdminPage() {
   const [editingNotes, setEditingNotes] = useState<string | null>(null)
   const [notesText, setNotesText] = useState("")
   const [newSubmissionsCount, setNewSubmissionsCount] = useState(0)
+  const [error, setError] = useState<string | null>(null)
   const notesTextareaRef = useRef<HTMLTextAreaElement>(null)
   const lastSubmissionCountRef = useRef(0)
+  const supabase = createClientSupabaseClient()
 
-  // Load submissions from localStorage
+  // Load submissions from Supabase
   useEffect(() => {
     setIsLoading(true)
+    setError(null)
 
-    // In a real app, this would be an API call
-    // For demo purposes, we'll use localStorage and mock data
-    setTimeout(() => {
-      const storedSubmissions = localStorage.getItem("formSubmissions")
+    const fetchSubmissions = async () => {
+      try {
+        console.log("Fetching submissions from Supabase")
 
-      if (storedSubmissions) {
-        const parsedSubmissions = JSON.parse(storedSubmissions)
-        setSubmissions(parsedSubmissions)
-        setFilteredSubmissions(parsedSubmissions)
+        const { data, error } = await supabase.from("jv_gc_e").select("*").order("submitted_at", { ascending: false })
 
-        // Check for new submissions
-        if (lastSubmissionCountRef.current > 0 && parsedSubmissions.length > lastSubmissionCountRef.current) {
-          setNewSubmissionsCount(parsedSubmissions.length - lastSubmissionCountRef.current)
-
-          // Mark new submissions
-          const updatedSubmissions = parsedSubmissions.map((sub: Submission, index: number) => {
-            if (index >= lastSubmissionCountRef.current) {
-              return { ...sub, isNew: true }
-            }
-            return sub
-          })
-
-          setSubmissions(updatedSubmissions)
-          setFilteredSubmissions(updatedSubmissions)
+        if (error) {
+          console.error("Error fetching submissions:", error)
+          setError(`Error fetching submissions: ${error.message}`)
+          return
         }
 
-        lastSubmissionCountRef.current = parsedSubmissions.length
-      } else {
-        // Mock data if no submissions exist
-        const mockSubmissions: Submission[] = [
-          {
-            id: "1",
-            name: "John Smith",
-            email: "john@example.com",
-            company: "ABC Property Management",
-            properties: "11-50",
-            status: "processed",
-            date: "2023-04-15T10:30:00",
-            source: "get-started",
-            notes: "Interested in Pro plan. Follow up next week.",
-          },
-          {
-            id: "2",
-            name: "Sarah Johnson",
-            email: "sarah@realestate.com",
-            company: "Johnson Properties",
-            properties: "1-10",
-            status: "pending",
-            date: "2023-04-16T14:45:00",
-            source: "homepage",
-            notes: "",
-          },
-          {
-            id: "3",
-            name: "Michael Brown",
-            email: "michael@brownpm.com",
-            company: "Brown Property Management",
-            properties: "51-200",
-            status: "pending",
-            date: "2023-04-14T09:15:00",
-            source: "pricing",
-            notes: "Requested pricing information for Enterprise plan.",
-          },
-          {
-            id: "4",
-            name: "Jessica Davis",
-            email: "jessica@davisproperties.com",
-            company: "Davis Properties LLC",
-            properties: "11-50",
-            status: "processed",
-            date: "2023-04-13T16:20:00",
-            source: "get-started",
-            notes: "Demo scheduled for next Tuesday at 2pm.",
-          },
-          {
-            id: "5",
-            name: "Robert Wilson",
-            email: "robert@wilsonpm.com",
-            company: "Wilson PM Group",
-            properties: "200+",
-            status: "pending",
-            date: "2023-04-17T11:10:00",
-            source: "homepage",
-            notes: "",
-          },
-        ]
+        console.log(`Fetched ${data?.length || 0} submissions from Supabase`)
 
-        setSubmissions(mockSubmissions)
-        setFilteredSubmissions(mockSubmissions)
-        localStorage.setItem("formSubmissions", JSON.stringify(mockSubmissions))
-        lastSubmissionCountRef.current = mockSubmissions.length
-      }
+        if (data) {
+          // Transform data to match our Submission type
+          const formattedSubmissions = data.map((item) => ({
+            id: item.id.toString(),
+            name: item.name || "",
+            email: item.email || "",
+            company: item.company || "",
+            properties: item.properties || "",
+            status: item.status || "pending",
+            date: item.submitted_at || new Date().toISOString(),
+            source: item.form_source || "",
+            notes: item.notes || "",
+          }))
 
-      setIsLoading(false)
-    }, 1000)
-  }, [])
+          setSubmissions(formattedSubmissions)
+          setFilteredSubmissions(formattedSubmissions)
 
-  // Set up polling for new submissions
-  useEffect(() => {
-    const checkForNewSubmissions = () => {
-      const storedSubmissions = localStorage.getItem("formSubmissions")
-      if (storedSubmissions) {
-        const parsedSubmissions = JSON.parse(storedSubmissions)
-        if (parsedSubmissions.length > lastSubmissionCountRef.current) {
-          setNewSubmissionsCount(parsedSubmissions.length - lastSubmissionCountRef.current)
+          // Check for new submissions
+          if (lastSubmissionCountRef.current > 0 && formattedSubmissions.length > lastSubmissionCountRef.current) {
+            setNewSubmissionsCount(formattedSubmissions.length - lastSubmissionCountRef.current)
 
-          // Play notification sound
-          const audio = new Audio("/notification.mp3")
-          audio.play().catch((e) => console.log("Audio play failed:", e))
-
-          // Show browser notification if supported
-          if ("Notification" in window && Notification.permission === "granted") {
-            new Notification("New Form Submission", {
-              body: "You have received a new form submission on JobVault.",
-              icon: "/favicon.ico",
+            // Mark new submissions
+            const updatedSubmissions = formattedSubmissions.map((sub, index) => {
+              if (index < formattedSubmissions.length - lastSubmissionCountRef.current) {
+                return { ...sub, isNew: true }
+              }
+              return sub
             })
+
+            setSubmissions(updatedSubmissions)
+            setFilteredSubmissions(updatedSubmissions)
           }
 
-          // Mark new submissions
-          const updatedSubmissions = parsedSubmissions.map((sub: Submission, index: number) => {
-            if (index >= lastSubmissionCountRef.current) {
-              return { ...sub, isNew: true }
-            }
-            return sub
-          })
-
-          setSubmissions(updatedSubmissions)
-          setFilteredSubmissions(updatedSubmissions)
-          lastSubmissionCountRef.current = parsedSubmissions.length
+          lastSubmissionCountRef.current = formattedSubmissions.length
         }
+      } catch (error) {
+        console.error("Error in fetchSubmissions:", error)
+        setError(`Error fetching submissions: ${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        setIsLoading(false)
       }
     }
 
-    // Check every 30 seconds
-    const interval = setInterval(checkForNewSubmissions, 30000)
+    fetchSubmissions()
 
-    // Request notification permission
-    if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
-      Notification.requestPermission()
-    }
-
+    // Set up polling for new submissions
+    const interval = setInterval(fetchSubmissions, 30000)
     return () => clearInterval(interval)
   }, [])
 
@@ -239,28 +163,49 @@ export default function AdminPage() {
   const processedCount = submissions.filter((sub) => sub.status === "processed").length
 
   // Handle refresh
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setIsLoading(true)
-    setTimeout(() => {
-      const storedSubmissions = localStorage.getItem("formSubmissions")
-      if (storedSubmissions) {
-        const parsedSubmissions = JSON.parse(storedSubmissions)
-        setSubmissions(parsedSubmissions)
-        setFilteredSubmissions(parsedSubmissions)
-        setNewSubmissionsCount(0)
+    setError(null)
 
-        // Clear "new" flags
-        const updatedSubmissions = parsedSubmissions.map((sub: Submission) => ({
-          ...sub,
+    try {
+      console.log("Manually refreshing submissions")
+
+      const { data, error } = await supabase.from("jv_gc_e").select("*").order("submitted_at", { ascending: false })
+
+      if (error) {
+        console.error("Error refreshing submissions:", error)
+        setError(`Error refreshing submissions: ${error.message}`)
+        return
+      }
+
+      console.log(`Refreshed ${data?.length || 0} submissions from Supabase`)
+
+      if (data) {
+        // Transform data to match our Submission type
+        const formattedSubmissions = data.map((item) => ({
+          id: item.id.toString(),
+          name: item.name || "",
+          email: item.email || "",
+          company: item.company || "",
+          properties: item.properties || "",
+          status: item.status || "pending",
+          date: item.submitted_at || new Date().toISOString(),
+          source: item.form_source || "",
+          notes: item.notes || "",
           isNew: false,
         }))
 
-        setSubmissions(updatedSubmissions)
-        setFilteredSubmissions(updatedSubmissions)
-        localStorage.setItem("formSubmissions", JSON.stringify(updatedSubmissions))
+        setSubmissions(formattedSubmissions)
+        setFilteredSubmissions(formattedSubmissions)
+        setNewSubmissionsCount(0)
+        lastSubmissionCountRef.current = formattedSubmissions.length
       }
+    } catch (error) {
+      console.error("Error in handleRefresh:", error)
+      setError(`Error refreshing submissions: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
       setIsLoading(false)
-    }, 1000)
+    }
   }
 
   // Handle export to CSV
@@ -297,18 +242,50 @@ export default function AdminPage() {
   }
 
   // Handle status change
-  const handleStatusChange = (id: string, newStatus: "pending" | "processed") => {
-    const updatedSubmissions = submissions.map((sub) => (sub.id === id ? { ...sub, status: newStatus } : sub))
-    setSubmissions(updatedSubmissions)
-    localStorage.setItem("formSubmissions", JSON.stringify(updatedSubmissions))
+  const handleStatusChange = async (id: string, newStatus: "pending" | "processed") => {
+    try {
+      console.log(`Updating status for submission ${id} to ${newStatus}`)
+
+      const { error } = await supabase.from("jv_gc_e").update({ status: newStatus }).eq("id", id)
+
+      if (error) {
+        console.error("Error updating status:", error)
+        setError(`Error updating status: ${error.message}`)
+        return
+      }
+
+      console.log(`Successfully updated status for submission ${id}`)
+
+      const updatedSubmissions = submissions.map((sub) => (sub.id === id ? { ...sub, status: newStatus } : sub))
+      setSubmissions(updatedSubmissions)
+    } catch (error) {
+      console.error("Error in handleStatusChange:", error)
+      setError(`Error updating status: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 
   // Handle delete submission
-  const handleDeleteSubmission = (id: string) => {
+  const handleDeleteSubmission = async (id: string) => {
     if (window.confirm("Are you sure you want to delete this submission?")) {
-      const updatedSubmissions = submissions.filter((sub) => sub.id !== id)
-      setSubmissions(updatedSubmissions)
-      localStorage.setItem("formSubmissions", JSON.stringify(updatedSubmissions))
+      try {
+        console.log(`Deleting submission ${id}`)
+
+        const { error } = await supabase.from("jv_gc_e").delete().eq("id", id)
+
+        if (error) {
+          console.error("Error deleting submission:", error)
+          setError(`Error deleting submission: ${error.message}`)
+          return
+        }
+
+        console.log(`Successfully deleted submission ${id}`)
+
+        const updatedSubmissions = submissions.filter((sub) => sub.id !== id)
+        setSubmissions(updatedSubmissions)
+      } catch (error) {
+        console.error("Error in handleDeleteSubmission:", error)
+        setError(`Error deleting submission: ${error instanceof Error ? error.message : String(error)}`)
+      }
     }
   }
 
@@ -319,11 +296,27 @@ export default function AdminPage() {
   }
 
   // Save notes
-  const saveNotes = (id: string) => {
-    const updatedSubmissions = submissions.map((sub) => (sub.id === id ? { ...sub, notes: notesText } : sub))
-    setSubmissions(updatedSubmissions)
-    localStorage.setItem("formSubmissions", JSON.stringify(updatedSubmissions))
-    setEditingNotes(null)
+  const saveNotes = async (id: string) => {
+    try {
+      console.log(`Updating notes for submission ${id}`)
+
+      const { error } = await supabase.from("jv_gc_e").update({ notes: notesText }).eq("id", id)
+
+      if (error) {
+        console.error("Error updating notes:", error)
+        setError(`Error updating notes: ${error.message}`)
+        return
+      }
+
+      console.log(`Successfully updated notes for submission ${id}`)
+
+      const updatedSubmissions = submissions.map((sub) => (sub.id === id ? { ...sub, notes: notesText } : sub))
+      setSubmissions(updatedSubmissions)
+      setEditingNotes(null)
+    } catch (error) {
+      console.error("Error in saveNotes:", error)
+      setError(`Error updating notes: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 
   // Cancel editing notes
@@ -356,6 +349,15 @@ export default function AdminPage() {
             </Button>
           </div>
         </div>
+
+        {error && (
+          <div className="bg-red-900/20 border border-red-800 text-red-400 p-4 rounded-md mb-6">
+            {error}
+            <Button variant="link" className="text-red-400 p-0 h-auto ml-2 underline" onClick={() => setError(null)}>
+              Dismiss
+            </Button>
+          </div>
+        )}
 
         <div className="bg-zinc-900 rounded-lg p-4 mb-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -403,9 +405,9 @@ export default function AdminPage() {
                 onChange={(e) => setSourceFilter(e.target.value)}
               >
                 <option value="all">All Sources</option>
+                <option value="hero">Hero</option>
                 <option value="homepage">Homepage</option>
                 <option value="get-started">Get Started</option>
-                <option value="pricing">Pricing</option>
               </select>
             </div>
 

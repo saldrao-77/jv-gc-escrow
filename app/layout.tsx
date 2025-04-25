@@ -79,19 +79,27 @@ export default function RootLayout({
           <Footer />
         </ThemeProvider>
 
-        <Script id="zapier-webhook-trigger-2" strategy="afterInteractive">
+        {/* Updated Zapier webhook script with better error handling and logging */}
+        <Script id="zapier-webhook-trigger" strategy="afterInteractive">
           {`
     (function() {
+      console.log("Zapier script initialized");
+      
       // Check if URL contains ?submitted=true
       if (window.location.href.includes('?submitted=true')) {
+        console.log("Detected submitted=true in URL");
+        
         // Check if this hasn't been triggered already in this browser session
-        if (!sessionStorage.getItem('zapierTriggered2')) {
+        if (!sessionStorage.getItem('zapierTriggered')) {
           console.log('Preparing to send data to Zapier webhook');
           
           // Prepare data for the webhook
           const data = {
+            event: "form_submission_script",
             submittedAt: new Date().toISOString(),
-            url: window.location.href
+            url: window.location.href,
+            userAgent: navigator.userAgent,
+            referrer: document.referrer || "direct"
           };
           
           console.log('Sending data to Zapier webhook:', data);
@@ -99,16 +107,23 @@ export default function RootLayout({
           // Send POST request to Zapier webhook
           fetch('https://hooks.zapier.com/hooks/catch/22588169/2xfcitk/', {
             method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
             body: JSON.stringify(data)
           })
           .then(response => {
             if (response.ok) {
               console.log('Zapier webhook triggered successfully');
               // Set flag in sessionStorage to prevent duplicate triggers
-              sessionStorage.setItem('zapierTriggered2', 'true');
-              console.log('Session storage flag set to prevent duplicates');
+              try {
+                sessionStorage.setItem('zapierTriggered', 'true');
+                console.log('Session storage flag set to prevent duplicates');
+              } catch (e) {
+                console.error('Error setting sessionStorage flag:', e);
+              }
             } else {
-              console.error('Failed to trigger Zapier webhook');
+              console.error('Failed to trigger Zapier webhook:', response.status, response.statusText);
             }
           })
           .catch(error => {

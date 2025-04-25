@@ -7,6 +7,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
+import { getUtmParams, getUserDeviceInfo } from "@/lib/utm-utils"
 
 export default function GetStartedPage() {
   const searchParams = useSearchParams()
@@ -15,7 +16,11 @@ export default function GetStartedPage() {
   const [company, setCompany] = useState("")
   const [properties, setProperties] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const router = useRouter()
+  const utmParams = getUtmParams()
+  const { isMobile, userAgent } = getUserDeviceInfo()
+  const isFromHero = searchParams.get("from") === "hero"
 
   useEffect(() => {
     const emailParam = searchParams.get("email")
@@ -27,61 +32,99 @@ export default function GetStartedPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
-
-    // Create the new submission
-    const newSubmission = {
-      id: Date.now().toString(),
-      name,
-      email,
-      company,
-      properties,
-      status: "pending",
-      date: new Date().toISOString(),
-      source: "get-started",
-      notes: "",
-    }
+    setError(null)
 
     try {
-      // Get existing submissions or initialize empty array
-      const existingSubmissions = JSON.parse(localStorage.getItem("formSubmissions") || "[]")
+      console.log("Get-started form submission started")
 
-      // Add new submission and save back to localStorage
-      localStorage.setItem("formSubmissions", JSON.stringify([...existingSubmissions, newSubmission]))
+      // Get client IP address (this will be replaced by the server)
+      let ipAddress = ""
+      try {
+        const ipResponse = await fetch("https://api.ipify.org?format=json")
+        if (ipResponse.ok) {
+          const ipData = await ipResponse.json()
+          ipAddress = ipData.ip
+        }
+      } catch (ipError) {
+        console.error("Error getting IP:", ipError)
+        // Continue without IP if there's an error
+      }
 
-      // For email notifications, you would call your email service here
-      // For now, we'll just log to console
-      console.log("New submission - would send email:", newSubmission)
+      // Get hero submission data if available
+      let heroData = null
+      try {
+        const heroSubmissionStr = sessionStorage.getItem("heroSubmission")
+        if (heroSubmissionStr) {
+          heroData = JSON.parse(heroSubmissionStr)
+        }
+      } catch (e) {
+        console.error("Error parsing hero submission:", e)
+      }
 
-      // In a real implementation with EmailJS, you would do something like:
-      /*
-      import emailjs from '@emailjs/browser';
-      
-      await emailjs.send(
-        "your_service_id",
-        "your_template_id",
-        {
-          name,
-          email,
-          company,
-          properties,
-          message: "New form submission from Get Started page",
+      // Create the submission data
+      const formData = {
+        name,
+        email,
+        company,
+        properties,
+        source: "get-started",
+        submittedAt: new Date().toISOString(),
+        url: window.location.href,
+        userAgent,
+        ip: ipAddress,
+        utmSource: utmParams.utmSource,
+        utmMedium: utmParams.utmMedium,
+        utmCampaign: utmParams.utmCampaign,
+        deviceType: isMobile ? "mobile" : "desktop",
+        isFromHero: isFromHero || !!heroData,
+        heroSubmissionTime: heroData?.timestamp ? new Date(heroData.timestamp).toISOString() : null,
+      }
+
+      console.log("Sending get-started form data:", formData)
+
+      // Send to our API route
+      const response = await fetch("/api/webhook", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-        "your_user_id"
-      );
-      */
+        body: JSON.stringify(formData),
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error("API response error:", errorText)
+        throw new Error(`Failed to submit form: ${errorText}`)
+      }
+
+      console.log("Get-started form submission successful")
+
+      // Store submission in sessionStorage to check on calendar page
+      sessionStorage.setItem(
+        "lastSubmission",
+        JSON.stringify({
+          ...formData,
+          timestamp: Date.now(),
+        }),
+      )
+
+      // Clear hero submission data after successful get-started submission
+      sessionStorage.removeItem("heroSubmission")
 
       // Redirect to the calendar page with the submitted parameter
       router.push("/calendar?submitted=true")
     } catch (error) {
-      console.error("Error processing submission:", error)
+      console.error("Error in get-started form submission:", error)
+      setError("There was an error submitting the form. Please try again.")
       // Still redirect even if notification fails
-      router.push("/calendar?submitted=true")
+      setTimeout(() => {
+        router.push("/calendar?submitted=true")
+      }, 1000)
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  // Update the get started page title and description
   return (
     <main className="min-h-screen bg-black text-white pt-32 pb-20">
       <div className="container mx-auto px-4">
@@ -104,6 +147,7 @@ export default function GetStartedPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
+                disabled={isSubmitting}
               />
             </div>
 
@@ -119,6 +163,7 @@ export default function GetStartedPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                disabled={isSubmitting}
               />
             </div>
 
@@ -133,6 +178,7 @@ export default function GetStartedPage() {
                 value={company}
                 onChange={(e) => setCompany(e.target.value)}
                 required
+                disabled={isSubmitting}
               />
             </div>
 
@@ -146,6 +192,7 @@ export default function GetStartedPage() {
                 value={properties}
                 onChange={(e) => setProperties(e.target.value)}
                 required
+                disabled={isSubmitting}
               >
                 <option value="">Select an option</option>
                 <option value="1-5">1-5 job sites</option>
@@ -154,6 +201,8 @@ export default function GetStartedPage() {
                 <option value="30+">30+ job sites</option>
               </select>
             </div>
+
+            {error && <p className="text-red-400 text-sm">{error}</p>}
 
             <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700" disabled={isSubmitting}>
               {isSubmitting ? "Submitting..." : "Start Saving Today"}
