@@ -8,12 +8,14 @@ export async function POST(request: Request) {
 
     const supabase = createServerSupabaseClient()
 
-    // Extract device type from user agent
+    // Extract device type from user agent with enhanced mobile detection
     const userAgent = data.userAgent || ""
-    const isMobile = /mobile|android|iphone|ipad|ipod/i.test(userAgent.toLowerCase())
-    const deviceType = isMobile ? "mobile" : "desktop"
+    // More comprehensive mobile detection pattern
+    const isMobile = /mobile|android|iphone|ipad|ipod|tablet|phone|touch/i.test(userAgent.toLowerCase())
+    const deviceType = data.deviceType || (isMobile ? "mobile" : "desktop")
 
-    // Log the device type for debugging
+    // Enhanced logging for device detection
+    console.log(`Device detection: userAgent=${userAgent.substring(0, 100)}...`)
     console.log(`Device type detected: ${deviceType} (isMobile: ${isMobile})`)
 
     // Prepare data for Zapier with consistent format

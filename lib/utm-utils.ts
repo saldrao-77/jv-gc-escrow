@@ -18,6 +18,7 @@ export function getUtmParams() {
   }
 }
 
+// Enhance the getUserDeviceInfo function with more comprehensive mobile detection
 export function getUserDeviceInfo() {
   if (typeof window === "undefined") {
     return {
@@ -27,7 +28,8 @@ export function getUserDeviceInfo() {
   }
 
   const userAgent = window.navigator.userAgent
-  const isMobile = /mobile|android|iphone|ipad|ipod/i.test(userAgent.toLowerCase())
+  // More comprehensive mobile detection pattern
+  const isMobile = /mobile|android|iphone|ipad|ipod|tablet|phone|touch/i.test(userAgent.toLowerCase())
 
   return {
     isMobile,
